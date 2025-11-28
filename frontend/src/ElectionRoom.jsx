@@ -24,7 +24,7 @@ export default function ElectionRoom({ username, election, onExit }) {
 			console.log("Stake placed", data);
 		});
 
-		s.on("election:resolved", ({ winner, results }) => {
+		s.on("election:resolved", ({ winner }) => {
 			setWinner(winner);
 		});
 
