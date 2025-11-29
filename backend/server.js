@@ -75,6 +75,11 @@ app.get("/elections", async (req, res) => {
 	res.json(elections);
 });
 
+app.get("/users", async (req, res) => {
+	const users = await User.find();
+	res.json(users);
+});
+
 app.post("/stake", async (req, res) => {
 	const { username, electionId, candidate, amount } = req.body;
 	const election = await Election.findById(electionId);

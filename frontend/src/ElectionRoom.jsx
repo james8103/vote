@@ -32,6 +32,7 @@ export default function ElectionRoom({ username, election, onExit }) {
 			setWinner(winner);
 		});
 
+		// Listen for balances updates from backend
 		s.on("balances:update", (users) => {
 			const obj = {};
 			users.forEach((u) => (obj[u.username] = u.balance));
@@ -39,6 +40,17 @@ export default function ElectionRoom({ username, election, onExit }) {
 		});
 
 		setSocket(s);
+
+		// Fetch initial balances on mount
+		fetch("https://vote-backend-jofd.onrender.com/users")
+			.then((res) => res.json())
+			.then((users) => {
+				const obj = {};
+				users.forEach((u) => (obj[u.username] = u.balance));
+				setBalances(obj);
+			})
+			.catch((err) => console.error("Error fetching initial balances:", err));
+
 		return () => s.disconnect();
 	}, [username, election.id]);
 
