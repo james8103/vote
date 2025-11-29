@@ -16,6 +16,7 @@ const userSchema = new mongoose.Schema({
 });
 
 const electionSchema = new mongoose.Schema({
+	id: String,
 	title: String,
 	candidates: [String],
 	status: { type: String, default: "open" },
@@ -39,11 +40,13 @@ await User.insertMany([
 // Insert sample elections
 await Election.insertMany([
 	{
+		id: "1",
 		title: "Presidential Election",
 		candidates: ["Gerry", "Alex"],
 		status: "open",
 	},
 	{
+		id: "2",
 		title: "Local Council Election",
 		candidates: ["Sarah", "John", "Mary"],
 		status: "open",

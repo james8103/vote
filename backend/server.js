@@ -70,14 +70,14 @@ async function getUser(username) {
 // ----------------------
 // API routes
 // ----------------------
-app.get("/elections", async (req, res) => {
-	const elections = await Election.find();
-	res.json(elections);
-});
-
 app.get("/users", async (req, res) => {
-	const users = await User.find();
-	res.json(users);
+	try {
+		const users = await User.find({}, { username: 1, balance: 1 });
+		res.json(users);
+	} catch (err) {
+		console.error("Error fetching users:", err);
+		res.status(500).json({ error: "Failed to fetch users" });
+	}
 });
 
 app.post("/stake", async (req, res) => {
@@ -92,18 +92,25 @@ app.post("/stake", async (req, res) => {
 		return res.status(400).json({ error: "Not enough balance" });
 	}
 
+	// Deduct balance
 	user.balance -= amount;
 	await user.save();
 
+	// Save stake
 	const stake = new Stake({ username, electionId, candidate, amount });
 	await stake.save();
 
+	// Emit stake event to this election room
 	io.to(`election:${electionId}`).emit("stake:placed", {
 		username,
 		candidate,
 		amount,
 		balance: user.balance,
 	});
+
+	// Emit updated balances to everyone
+	const users = await User.find({}, { username: 1, balance: 1 });
+	io.emit("balances:update", users);
 
 	res.json({ success: true, balance: user.balance });
 });
@@ -133,8 +140,10 @@ app.post("/resolve", async (req, res) => {
 		results: stakes,
 	});
 
-	const users = await User.find();
+	// Emit updated balances after resolution
+	const users = await User.find({}, { username: 1, balance: 1 });
 	io.emit("balances:update", users);
+
 	res.json({ success: true, winner });
 });
 
@@ -156,6 +165,10 @@ io.on("connection", (socket) => {
 			balance: user.balance,
 			election,
 		});
+
+		// Send current balances immediately on join
+		const users = await User.find({}, { username: 1, balance: 1 });
+		io.emit("balances:update", users);
 	});
 
 	socket.on("chat:message", async ({ electionId, username, message }) => {
