@@ -10,11 +10,7 @@ export default function ElectionRoom({ username, election, onExit }) {
 
 	useEffect(() => {
 		// Connect to your Render backend
-		const s = io("https://vote-backend-jofd.onrender.com", {
-			transports: ["websocket"], // helps avoid polling issues
-		});
-
-		s.emit("join", { username, electionId: election.id });
+		const s = io("https://vote-backend-jofd.onrender.com");
 
 		s.on("joined", (data) => {
 			console.log("Joined:", data);
@@ -38,6 +34,8 @@ export default function ElectionRoom({ username, election, onExit }) {
 			users.forEach((u) => (obj[u.username] = u.balance));
 			setBalances(obj);
 		});
+
+		s.emit("join", { username, electionId: election.id });
 
 		setSocket(s);
 
@@ -107,7 +105,7 @@ export default function ElectionRoom({ username, election, onExit }) {
 						{election.candidates.map((c) => (
 							<li key={c} className="mb-2">
 								<button
-									onClick={() =>
+									onClick={() => {
 										fetch("https://vote-backend-jofd.onrender.com/stake", {
 											method: "POST",
 											headers: { "Content-Type": "application/json" },
@@ -117,8 +115,17 @@ export default function ElectionRoom({ username, election, onExit }) {
 												candidate: c,
 												amount: 50,
 											}),
-										})
-									}
+										}).then(() => {
+											// Force pull balances if websocket missed an event
+											fetch("https://vote-backend-jofd.onrender.com/users")
+												.then((res) => res.json())
+												.then((users) => {
+													const obj = {};
+													users.forEach((u) => (obj[u.username] = u.balance));
+													setBalances(obj);
+												});
+										});
+									}}
 									className="bg-green-500 text-white px-3 py-1 rounded"
 								>
 									Stake 50 on {c}
