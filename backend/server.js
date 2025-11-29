@@ -80,6 +80,17 @@ app.get("/users", async (req, res) => {
 	}
 });
 
+// Get all elections
+app.get("/elections", async (req, res) => {
+	try {
+		const elections = await Election.find();
+		res.json(elections);
+	} catch (err) {
+		console.error("Error fetching elections:", err);
+		res.status(500).json({ error: "Failed to fetch elections" });
+	}
+});
+
 app.post("/stake", async (req, res) => {
 	const { username, electionId, candidate, amount } = req.body;
 	const election = await Election.findById(electionId);
