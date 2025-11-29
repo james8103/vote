@@ -67,6 +67,8 @@ async function getUser(username) {
 	return user;
 }
 
+const io = new Server(server, { cors: { origin: "*" } });
+
 // ----------------------
 // API routes
 // ----------------------
@@ -161,7 +163,6 @@ app.post("/resolve", async (req, res) => {
 // ----------------------
 // Socket.IO handlers
 // ----------------------
-const io = new Server(server, { cors: { origin: "*" } });
 
 io.on("connection", (socket) => {
 	console.log("A user connected");
