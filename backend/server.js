@@ -155,7 +155,7 @@ app.post("/resolve", async (req, res) => {
 
 	// Emit updated balances after resolution
 	const users = await User.find({}, { username: 1, balance: 1 });
-	io.emit("balances:update", users);
+	io.to(`election:${electionId}`).emit("balances:update", users);
 
 	res.json({ success: true, winner });
 });
