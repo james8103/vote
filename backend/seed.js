@@ -21,12 +21,15 @@ const electionSchema = new mongoose.Schema({
 	candidates: [String],
 	status: { type: String, default: "open" },
 	winner: { type: String, default: null },
+<<<<<<< HEAD
 	voteThreshold: { type: Number, default: 100 },
 	voteCounts: {
 		type: Map,
 		of: Number,
 		default: {},
 	},
+=======
+>>>>>>> 09fa173ee913298eb7b0d7f230c8856fe84a72c2
 });
 
 const User = mongoose.model("User", userSchema);
@@ -43,30 +46,40 @@ await User.insertMany([
 	{ username: "Charlie", balance: 1000 },
 ]);
 
+<<<<<<< HEAD
 // Insert sample elections with vote thresholds
+=======
+// Insert sample elections
+>>>>>>> 09fa173ee913298eb7b0d7f230c8856fe84a72c2
 await Election.insertMany([
 	{
 		id: "1",
 		title: "Presidential Election",
 		candidates: ["Gerry", "Alex"],
 		status: "open",
+<<<<<<< HEAD
 		voteThreshold: 10, // Set to 10 for testing, increase for production
 		voteCounts: new Map([
 			["Gerry", 0],
 			["Alex", 0],
 		]),
+=======
+>>>>>>> 09fa173ee913298eb7b0d7f230c8856fe84a72c2
 	},
 	{
 		id: "2",
 		title: "Local Council Election",
 		candidates: ["Sarah", "John", "Mary"],
 		status: "open",
+<<<<<<< HEAD
 		voteThreshold: 15,
 		voteCounts: new Map([
 			["Sarah", 0],
 			["John", 0],
 			["Mary", 0],
 		]),
+=======
+>>>>>>> 09fa173ee913298eb7b0d7f230c8856fe84a72c2
 	},
 ]);
 

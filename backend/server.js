@@ -33,12 +33,15 @@ const electionSchema = new mongoose.Schema({
 	candidates: [String],
 	status: { type: String, default: "open" },
 	winner: { type: String, default: null },
+<<<<<<< HEAD
 	voteThreshold: { type: Number, default: 100 }, // Votes needed to win
 	voteCounts: {
 		type: Map,
 		of: Number,
 		default: {},
 	},
+=======
+>>>>>>> 09fa173ee913298eb7b0d7f230c8856fe84a72c2
 });
 
 const stakeSchema = new mongoose.Schema({
@@ -73,6 +76,7 @@ async function getUser(username) {
 	return user;
 }
 
+<<<<<<< HEAD
 async function checkWinCondition(election) {
 	if (election.status === "closed") return null;
 
@@ -103,6 +107,9 @@ async function checkWinCondition(election) {
 
 	return null;
 }
+=======
+const io = new Server(server, { cors: { origin: "*" } });
+>>>>>>> 09fa173ee913298eb7b0d7f230c8856fe84a72c2
 
 const io = new Server(server, { cors: { origin: "*" } });
 
@@ -130,6 +137,7 @@ app.get("/elections", async (req, res) => {
 	}
 });
 
+<<<<<<< HEAD
 // Get vote counts for an election
 app.get("/votes/:electionId", async (req, res) => {
 	try {
@@ -157,6 +165,8 @@ app.get("/votes/:electionId", async (req, res) => {
 	}
 });
 
+=======
+>>>>>>> 09fa173ee913298eb7b0d7f230c8856fe84a72c2
 app.post("/stake", async (req, res) => {
 	const { username, electionId, candidate, amount } = req.body;
 	const election = await Election.findById(electionId);
@@ -177,6 +187,7 @@ app.post("/stake", async (req, res) => {
 	const stake = new Stake({ username, electionId, candidate, amount });
 	await stake.save();
 
+<<<<<<< HEAD
 	// Update vote count
 	if (!election.voteCounts) {
 		election.voteCounts = new Map();
@@ -185,6 +196,8 @@ app.post("/stake", async (req, res) => {
 	election.voteCounts.set(candidate, currentVotes + 1);
 	await election.save();
 
+=======
+>>>>>>> 09fa173ee913298eb7b0d7f230c8856fe84a72c2
 	// Emit stake event to this election room
 	io.to(`election:${electionId}`).emit("stake:placed", {
 		username,
@@ -193,6 +206,7 @@ app.post("/stake", async (req, res) => {
 		balance: user.balance,
 	});
 
+<<<<<<< HEAD
 	// Emit updated vote counts
 	const voteCounts = {};
 	for (const [cand, count] of election.voteCounts.entries()) {
@@ -221,6 +235,11 @@ app.post("/stake", async (req, res) => {
 	// Emit updated balances to everyone
 	const users = await User.find({}, { username: 1, balance: 1 });
 	io.to(`election:${electionId}`).emit("balances:update", users);
+=======
+	// Emit updated balances to everyone
+	const users = await User.find({}, { username: 1, balance: 1 });
+	io.emit("balances:update", users);
+>>>>>>> 09fa173ee913298eb7b0d7f230c8856fe84a72c2
 
 	res.json({ success: true, balance: user.balance });
 });
@@ -275,6 +294,7 @@ io.on("connection", (socket) => {
 			election,
 		});
 
+<<<<<<< HEAD
 		// Send current vote counts
 		const voteCounts = {};
 		if (election.voteCounts) {
@@ -284,6 +304,8 @@ io.on("connection", (socket) => {
 		}
 		socket.emit("votes:update", voteCounts);
 
+=======
+>>>>>>> 09fa173ee913298eb7b0d7f230c8856fe84a72c2
 		// Send current balances immediately on join
 		const users = await User.find({}, { username: 1, balance: 1 });
 		io.emit("balances:update", users);
