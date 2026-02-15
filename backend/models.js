@@ -9,8 +9,9 @@ const userSchema = new mongoose.Schema({
 // Election Schema
 const electionSchema = new mongoose.Schema({
 	title: String,
+	description: String, // Optional description of the election
 	candidates: [String],
-	status: { type: String, default: "open" },
+	status: { type: String, default: "open" }, // open, closed
 	winner: { type: String, default: null },
 	voteThreshold: { type: Number, default: 100 },
 	voteCounts: {
@@ -20,6 +21,10 @@ const electionSchema = new mongoose.Schema({
 	},
 	entryBonus: { type: Number, default: 200 }, // Coins given on first join
 	voteCost: { type: Number, default: 50 }, // Cost to vote
+	isVisible: { type: Boolean, default: true }, // NEW: Controls if users can see this election
+	createdAt: { type: Date, default: Date.now },
+	startsAt: { type: Date, default: null }, // Optional: when election becomes visible
+	endsAt: { type: Date, default: null }, // Optional: when election closes
 });
 
 // Stake Schema (tracks who voted for whom)
@@ -39,16 +44,13 @@ const messageSchema = new mongoose.Schema({
 	time: { type: Date, default: Date.now },
 });
 
-// NEW: User Election Participation Schema
-// Tracks which users have joined which elections and their personalized payouts
+// User Election Participation Schema
 const userElectionSchema = new mongoose.Schema({
 	username: String,
 	electionId: mongoose.Schema.Types.ObjectId,
-	hasJoined: { type: Boolean, default: false }, // Prevents bonus abuse
+	hasJoined: { type: Boolean, default: false },
 	hasReceivedBonus: { type: Boolean, default: false },
 	hasVoted: { type: Boolean, default: false },
-	// Personalized payouts for each candidate
-	// Format: { "CandidateName": payoutAmount }
 	payouts: {
 		type: Map,
 		of: Number,

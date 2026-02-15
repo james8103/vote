@@ -143,13 +143,48 @@ app.get("/users", async (req, res) => {
 	}
 });
 
+// Get elections (only visible ones for regular users)
 app.get("/elections", async (req, res) => {
+	try {
+		// Filter to only show visible elections
+		const elections = await Election.find({ isVisible: true });
+		res.json(elections);
+	} catch (err) {
+		console.error("Error fetching elections:", err);
+		res.status(500).json({ error: "Failed to fetch elections" });
+	}
+});
+
+// Admin endpoint to get ALL elections (including hidden)
+app.get("/elections/all", async (req, res) => {
 	try {
 		const elections = await Election.find();
 		res.json(elections);
 	} catch (err) {
 		console.error("Error fetching elections:", err);
 		res.status(500).json({ error: "Failed to fetch elections" });
+	}
+});
+
+// Toggle election visibility
+app.patch("/elections/:electionId/visibility", async (req, res) => {
+	try {
+		const electionId = toObjectId(req.params.electionId);
+		const { isVisible } = req.body;
+
+		const election = await Election.findById(electionId);
+		if (!election) {
+			return res.status(404).json({ error: "Election not found" });
+		}
+
+		election.isVisible = isVisible;
+		await election.save();
+
+		console.log(`👁️ ${election.title} visibility set to: ${isVisible}`);
+		res.json({ success: true, isVisible: election.isVisible });
+	} catch (err) {
+		console.error("Error updating visibility:", err);
+		res.status(500).json({ error: "Failed to update visibility" });
 	}
 });
 
@@ -195,7 +230,7 @@ app.get("/messages/:electionId", async (req, res) => {
 	}
 });
 
-// NEW: Get user's personalized payouts for an election
+// Get user's personalized payouts for an election
 app.get("/payouts/:electionId/:username", async (req, res) => {
 	try {
 		const electionId = toObjectId(req.params.electionId);
@@ -229,6 +264,10 @@ app.post("/stake", async (req, res) => {
 
 		if (!election) {
 			return res.status(400).json({ error: "Election not found" });
+		}
+
+		if (!election.isVisible) {
+			return res.status(400).json({ error: "Election is not available" });
 		}
 
 		if (election.status !== "open") {
@@ -303,7 +342,6 @@ app.post("/stake", async (req, res) => {
 		// Check for win condition
 		const winner = await checkWinCondition(election);
 		if (winner) {
-			// Get all final results with payouts
 			const results = await UserElection.find({
 				electionId: objectId,
 				hasVoted: true,
@@ -311,7 +349,6 @@ app.post("/stake", async (req, res) => {
 
 			const payoutSummary = results.map((r) => ({
 				username: r.username,
-				votedFor: null, // We could track this if needed
 				payout: r.payouts.get(winner) || 0,
 			}));
 
@@ -353,7 +390,7 @@ app.post("/resolve", async (req, res) => {
 		election.winner = winner;
 		await election.save();
 
-		// Distribute payouts (same logic as checkWinCondition)
+		// Distribute payouts
 		const participants = await UserElection.find({
 			electionId: objectId,
 			hasVoted: true,
@@ -400,7 +437,14 @@ io.on("connection", (socket) => {
 				return;
 			}
 
-			// Get or create user election record (generates payouts if first time)
+			// Check if election is visible
+			if (!election.isVisible) {
+				console.error("❌ Election not visible");
+				socket.emit("error", { message: "Election is not available" });
+				return;
+			}
+
+			// Get or create user election record
 			const userElection = await getUserElectionRecord(username, objectId);
 
 			// Give entry bonus if first time joining
@@ -441,7 +485,7 @@ io.on("connection", (socket) => {
 				username,
 				balance: user.balance,
 				election,
-				payouts, // Send user's personalized payouts
+				payouts,
 				hasVoted: userElection.hasVoted,
 			});
 
