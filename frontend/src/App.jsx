@@ -6,7 +6,7 @@ import ElectionRoom from "./ElectionRoom";
 
 export default function App() {
 	const [username, setUsername] = useState(
-		localStorage.getItem("username") || ""
+		localStorage.getItem("username") || "",
 	);
 
 	const [election, setElection] = useState(null);
