@@ -12,21 +12,35 @@ export default function ElectionRoom({ username, election, onExit }) {
 	const [isLoadingHistory, setIsLoadingHistory] = useState(true);
 
 	useEffect(() => {
+		console.log("🔍 ElectionRoom mounted with election:", election);
+		console.log("🔍 Election ID:", election.id);
+		console.log("🔍 Election _id:", election._id);
+
+		// Use _id if it exists, otherwise use id
+		const electionId = election._id || election.id;
+		console.log("🔍 Using electionId:", electionId);
+
 		// Connect to your Render backend
 		const s = io("https://vote-backend-jofd.onrender.com");
 
+		s.on("connect", () => {
+			console.log("✅ Socket connected");
+		});
+
 		s.on("joined", (data) => {
-			console.log("Joined:", data);
+			console.log("✅ Joined:", data);
 		});
 
 		// Listen for chat history when joining
 		s.on("chat:history", (messages) => {
-			console.log("Received chat history:", messages);
+			console.log("📜 Received chat history:", messages.length, "messages");
+			console.log("📜 Messages:", messages);
 			setChat(messages);
 			setIsLoadingHistory(false);
 		});
 
 		s.on("chat:message", (msg) => {
+			console.log("💬 New message:", msg);
 			setChat((prev) => [...prev, msg]);
 		});
 
@@ -50,7 +64,8 @@ export default function ElectionRoom({ username, election, onExit }) {
 			setBalances(obj);
 		});
 
-		s.emit("join", { username, electionId: election.id });
+		console.log("🚀 Emitting join event with electionId:", electionId);
+		s.emit("join", { username, electionId });
 
 		setSocket(s);
 
@@ -65,9 +80,12 @@ export default function ElectionRoom({ username, election, onExit }) {
 			.catch((err) => console.error("Error fetching initial balances:", err));
 
 		// Fetch initial vote counts
-		fetch(`https://vote-backend-jofd.onrender.com/votes/${election.id}`)
+		const votesUrl = `https://vote-backend-jofd.onrender.com/votes/${electionId}`;
+		console.log("🔍 Fetching votes from:", votesUrl);
+		fetch(votesUrl)
 			.then((res) => res.json())
 			.then((data) => {
+				console.log("📊 Vote data:", data);
 				setVoteCounts(data.votes || {});
 				setVoteThreshold(data.threshold || 100);
 				if (data.winner) {
@@ -77,26 +95,50 @@ export default function ElectionRoom({ username, election, onExit }) {
 			.catch((err) => console.error("Error fetching vote counts:", err));
 
 		// Fetch chat history (backup method if socket doesn't deliver)
-		fetch(`https://vote-backend-jofd.onrender.com/messages/${election.id}`)
-			.then((res) => res.json())
+		const messagesUrl = `https://vote-backend-jofd.onrender.com/messages/${electionId}`;
+		console.log("🔍 Fetching messages from:", messagesUrl);
+
+		fetch(messagesUrl)
+			.then((res) => {
+				console.log("📡 Messages response status:", res.status);
+				return res.json();
+			})
 			.then((messages) => {
-				if (messages.length > 0 && chat.length === 0) {
-					setChat(messages);
-				}
+				console.log(
+					"📜 Fetched messages via HTTP:",
+					messages.length,
+					"messages",
+				);
+				console.log("📜 Messages content:", messages);
+
+				// Only set if we haven't received via socket yet
+				setChat((prevChat) => {
+					if (prevChat.length === 0 && messages.length > 0) {
+						console.log("✅ Setting chat from HTTP response");
+						return messages;
+					}
+					console.log("⏭️ Skipping HTTP messages (already have chat)");
+					return prevChat;
+				});
 				setIsLoadingHistory(false);
 			})
 			.catch((err) => {
-				console.error("Error fetching chat history:", err);
+				console.error("❌ Error fetching chat history:", err);
 				setIsLoadingHistory(false);
 			});
 
-		return () => s.disconnect();
-	}, [username, election.id]);
+		return () => {
+			console.log("🔌 Disconnecting socket");
+			s.disconnect();
+		};
+	}, [username, election]);
 
 	const sendMessage = () => {
 		if (message.trim() !== "") {
+			const electionId = election._id || election.id;
+			console.log("📤 Sending message to electionId:", electionId);
 			socket.emit("chat:message", {
-				electionId: election.id,
+				electionId,
 				username,
 				message,
 			});
@@ -110,6 +152,7 @@ export default function ElectionRoom({ username, election, onExit }) {
 	};
 
 	const formatTime = (timestamp) => {
+		if (!timestamp) return "";
 		const date = new Date(timestamp);
 		return date.toLocaleTimeString([], {
 			hour: "2-digit",
@@ -117,12 +160,20 @@ export default function ElectionRoom({ username, election, onExit }) {
 		});
 	};
 
+	const electionId = election._id || election.id;
+
 	return (
 		<div className="p-6">
 			<button onClick={onExit} className="mb-4 text-blue-600 underline">
 				← Back
 			</button>
 			<h1 className="text-2xl font-bold mb-2">{election.title}</h1>
+
+			{/* Debug info - remove this later */}
+			<div className="text-xs text-gray-500 mb-2">
+				Election ID: {electionId} | Messages loaded: {chat.length}
+			</div>
+
 			{winner && (
 				<div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
 					<strong>🎉 Winner: {winner}!</strong> They reached {voteThreshold}{" "}
@@ -139,8 +190,13 @@ export default function ElectionRoom({ username, election, onExit }) {
 								Loading chat history...
 							</p>
 						)}
+						{!isLoadingHistory && chat.length === 0 && (
+							<p className="text-gray-500 text-sm italic">
+								No messages yet. Be the first to chat!
+							</p>
+						)}
 						{chat.map((m, i) => (
-							<div key={i} className="mb-2">
+							<div key={m._id || i} className="mb-2">
 								<span className="text-xs text-gray-500 mr-2">
 									{formatTime(m.time)}
 								</span>
@@ -211,7 +267,7 @@ export default function ElectionRoom({ username, election, onExit }) {
 												headers: { "Content-Type": "application/json" },
 												body: JSON.stringify({
 													username,
-													electionId: election.id,
+													electionId,
 													candidate: c,
 													amount: 50,
 												}),
