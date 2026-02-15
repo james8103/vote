@@ -18,9 +18,11 @@ const electionSchema = new mongoose.Schema({
 		of: Number,
 		default: {},
 	},
+	entryBonus: { type: Number, default: 200 }, // Coins given on first join
+	voteCost: { type: Number, default: 50 }, // Cost to vote
 });
 
-// Stake Schema
+// Stake Schema (tracks who voted for whom)
 const stakeSchema = new mongoose.Schema({
 	username: String,
 	electionId: mongoose.Schema.Types.ObjectId,
@@ -37,8 +39,27 @@ const messageSchema = new mongoose.Schema({
 	time: { type: Date, default: Date.now },
 });
 
+// NEW: User Election Participation Schema
+// Tracks which users have joined which elections and their personalized payouts
+const userElectionSchema = new mongoose.Schema({
+	username: String,
+	electionId: mongoose.Schema.Types.ObjectId,
+	hasJoined: { type: Boolean, default: false }, // Prevents bonus abuse
+	hasReceivedBonus: { type: Boolean, default: false },
+	hasVoted: { type: Boolean, default: false },
+	// Personalized payouts for each candidate
+	// Format: { "CandidateName": payoutAmount }
+	payouts: {
+		type: Map,
+		of: Number,
+		default: {},
+	},
+	joinedAt: { type: Date, default: Date.now },
+});
+
 // Export Models
 export const User = mongoose.model("User", userSchema);
 export const Election = mongoose.model("Election", electionSchema);
 export const Stake = mongoose.model("Stake", stakeSchema);
 export const Message = mongoose.model("Message", messageSchema);
+export const UserElection = mongoose.model("UserElection", userElectionSchema);

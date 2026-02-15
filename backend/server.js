@@ -4,7 +4,8 @@ import { Server } from "socket.io";
 import cors from "cors";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
-import { User, Election, Stake, Message } from "./models.js";
+import { User, Election, Stake, Message, UserElection } from "./models.js";
+import { generateUserPayouts, getUserIndex } from "./payoutGenerator.js";
 
 dotenv.config();
 
@@ -36,19 +37,45 @@ async function getUser(username) {
 // Helper to convert string ID to ObjectId if needed
 function toObjectId(id) {
 	if (!id) return null;
-
-	// If it's already an ObjectId, return it
-	if (id instanceof mongoose.Types.ObjectId) {
-		return id;
-	}
-
-	// If it's a valid 24-character hex string, convert it
+	if (id instanceof mongoose.Types.ObjectId) return id;
 	if (typeof id === "string" && /^[0-9a-fA-F]{24}$/.test(id)) {
 		return new mongoose.Types.ObjectId(id);
 	}
-
-	// Otherwise return as-is
 	return id;
+}
+
+// Get or create UserElection record with personalized payouts
+async function getUserElectionRecord(username, electionId) {
+	const objectId = toObjectId(electionId);
+
+	let userElection = await UserElection.findOne({
+		username,
+		electionId: objectId,
+	});
+
+	if (!userElection) {
+		// First time user joins this election - create record
+		const election = await Election.findById(objectId);
+		if (!election) {
+			throw new Error("Election not found");
+		}
+
+		// Generate personalized payouts
+		const userIdx = getUserIndex(username);
+		const payouts = generateUserPayouts(election.candidates, userIdx);
+
+		userElection = new UserElection({
+			username,
+			electionId: objectId,
+			hasJoined: true,
+			payouts: payouts,
+		});
+
+		await userElection.save();
+		console.log(`✨ Generated payouts for ${username}:`, payouts);
+	}
+
+	return userElection;
 }
 
 async function checkWinCondition(election) {
@@ -63,16 +90,35 @@ async function checkWinCondition(election) {
 			election.winner = candidate;
 			await election.save();
 
-			// Award payouts
-			const stakes = await Stake.find({ electionId: election._id });
-			for (const s of stakes) {
-				const user = await getUser(s.username);
-				if (s.candidate === candidate) {
-					s.balanceChange = s.amount * 2;
-					user.balance += s.balanceChange;
-				}
-				await s.save();
+			console.log(`🎉 ${candidate} won! Distributing payouts...`);
+
+			// Get all users who participated in this election
+			const participants = await UserElection.find({
+				electionId: election._id,
+				hasVoted: true,
+			});
+
+			// Distribute personalized payouts
+			for (const participant of participants) {
+				const user = await getUser(participant.username);
+				const payout = participant.payouts.get(candidate) || 0;
+
+				user.balance += payout;
 				await user.save();
+
+				console.log(
+					`💰 ${participant.username}: ${payout > 0 ? "+" : ""}${payout} coins (new balance: ${user.balance})`,
+				);
+
+				// Update stake record with payout info
+				const stake = await Stake.findOne({
+					username: participant.username,
+					electionId: election._id,
+				});
+				if (stake) {
+					stake.balanceChange = payout;
+					await stake.save();
+				}
 			}
 
 			return candidate;
@@ -110,11 +156,8 @@ app.get("/elections", async (req, res) => {
 app.get("/votes/:electionId", async (req, res) => {
 	try {
 		const electionId = toObjectId(req.params.electionId);
-		console.log("📊 Fetching votes for election:", electionId);
-
 		const election = await Election.findById(electionId);
 		if (!election) {
-			console.log("❌ Election not found:", electionId);
 			return res.status(404).json({ error: "Election not found" });
 		}
 
@@ -130,6 +173,7 @@ app.get("/votes/:electionId", async (req, res) => {
 			threshold: election.voteThreshold,
 			winner: election.winner,
 			status: election.status,
+			voteCost: election.voteCost,
 		});
 	} catch (err) {
 		console.error("Error fetching votes:", err);
@@ -140,13 +184,10 @@ app.get("/votes/:electionId", async (req, res) => {
 app.get("/messages/:electionId", async (req, res) => {
 	try {
 		const electionId = toObjectId(req.params.electionId);
-		console.log("💬 Fetching messages for election:", electionId);
-
 		const messages = await Message.find({
 			electionId: electionId,
 		}).sort({ time: 1 });
 
-		console.log(`📜 Found ${messages.length} messages`);
 		res.json(messages);
 	} catch (err) {
 		console.error("Error fetching messages:", err);
@@ -154,50 +195,82 @@ app.get("/messages/:electionId", async (req, res) => {
 	}
 });
 
+// NEW: Get user's personalized payouts for an election
+app.get("/payouts/:electionId/:username", async (req, res) => {
+	try {
+		const electionId = toObjectId(req.params.electionId);
+		const username = req.params.username;
+
+		const userElection = await getUserElectionRecord(username, electionId);
+
+		// Convert Map to plain object for JSON
+		const payouts = {};
+		for (const [candidate, amount] of userElection.payouts.entries()) {
+			payouts[candidate] = amount;
+		}
+
+		res.json({
+			payouts,
+			hasVoted: userElection.hasVoted,
+		});
+	} catch (err) {
+		console.error("Error fetching payouts:", err);
+		res.status(500).json({ error: "Failed to fetch payouts" });
+	}
+});
+
 app.post("/stake", async (req, res) => {
 	try {
 		const { username, electionId, candidate, amount } = req.body;
-		console.log("📥 Stake request received:", {
-			username,
-			electionId,
-			candidate,
-			amount,
-		});
+		console.log("📥 Vote request:", { username, electionId, candidate });
 
 		const objectId = toObjectId(electionId);
-		console.log("🔍 Converted electionId:", objectId);
-
 		const election = await Election.findById(objectId);
-		console.log("🗳️ Election found:", election ? "Yes" : "No");
 
 		if (!election) {
-			console.log("❌ Election not found for ID:", electionId);
 			return res.status(400).json({ error: "Election not found" });
 		}
-
-		console.log("📊 Election status:", election.status);
 
 		if (election.status !== "open") {
 			return res.status(400).json({ error: "Election is closed" });
 		}
 
 		const user = await getUser(username);
-		console.log("👤 User balance:", user.balance);
 
-		if (user.balance < amount) {
-			return res.status(400).json({ error: "Not enough balance" });
+		// Check if user can afford to vote
+		const voteCost = election.voteCost || 50;
+		if (user.balance <= 0) {
+			return res
+				.status(400)
+				.json({ error: "Cannot vote with zero or negative balance" });
+		}
+		if (user.balance < voteCost) {
+			return res.status(400).json({ error: "Not enough balance to vote" });
 		}
 
-		// Deduct balance
-		user.balance -= amount;
+		// Get user's election record
+		const userElection = await getUserElectionRecord(username, objectId);
+
+		if (userElection.hasVoted) {
+			return res
+				.status(400)
+				.json({ error: "You have already voted in this election" });
+		}
+
+		// Deduct vote cost
+		user.balance -= voteCost;
 		await user.save();
 
-		// Save stake - use the ObjectId version
+		// Mark as voted
+		userElection.hasVoted = true;
+		await userElection.save();
+
+		// Save stake
 		const stake = new Stake({
 			username,
 			electionId: objectId,
 			candidate,
-			amount,
+			amount: voteCost,
 		});
 		await stake.save();
 
@@ -209,17 +282,18 @@ app.post("/stake", async (req, res) => {
 		election.voteCounts.set(candidate, currentVotes + 1);
 		await election.save();
 
-		console.log("✅ Vote recorded. New count:", currentVotes + 1);
+		console.log(
+			`✅ ${username} voted for ${candidate}. New count: ${currentVotes + 1}`,
+		);
 
-		// Emit stake event to this election room
+		// Emit updates
 		io.to(`election:${electionId}`).emit("stake:placed", {
 			username,
 			candidate,
-			amount,
+			amount: voteCost,
 			balance: user.balance,
 		});
 
-		// Emit updated vote counts
 		const voteCounts = {};
 		for (const [cand, count] of election.voteCounts.entries()) {
 			voteCounts[cand] = count;
@@ -229,29 +303,41 @@ app.post("/stake", async (req, res) => {
 		// Check for win condition
 		const winner = await checkWinCondition(election);
 		if (winner) {
+			// Get all final results with payouts
+			const results = await UserElection.find({
+				electionId: objectId,
+				hasVoted: true,
+			});
+
+			const payoutSummary = results.map((r) => ({
+				username: r.username,
+				votedFor: null, // We could track this if needed
+				payout: r.payouts.get(winner) || 0,
+			}));
+
 			io.to(`election:${electionId}`).emit("election:resolved", {
 				winner,
-				results: await Stake.find({ electionId: objectId }),
+				results: payoutSummary,
 			});
 
 			// Broadcast announcement
 			const announcement = new Message({
 				electionId: objectId,
 				username: "SYSTEM",
-				message: `🎉 ${winner} has won the election with ${election.voteThreshold} votes!`,
+				message: `🎉 ${winner} has won the election! Payouts distributed. Check your balance!`,
 			});
 			await announcement.save();
 			io.to(`election:${electionId}`).emit("chat:message", announcement);
 		}
 
-		// Emit updated balances to everyone
+		// Emit updated balances
 		const users = await User.find({}, { username: 1, balance: 1 });
 		io.to(`election:${electionId}`).emit("balances:update", users);
 
 		res.json({ success: true, balance: user.balance });
 	} catch (err) {
 		console.error("❌ Error in /stake:", err);
-		res.status(500).json({ error: "Internal server error: " + err.message });
+		res.status(500).json({ error: err.message });
 	}
 });
 
@@ -267,23 +353,21 @@ app.post("/resolve", async (req, res) => {
 		election.winner = winner;
 		await election.save();
 
-		const stakes = await Stake.find({ electionId: objectId });
-		for (const s of stakes) {
-			const user = await getUser(s.username);
-			if (s.candidate === winner) {
-				s.balanceChange = s.amount * 2;
-				user.balance += s.balanceChange;
-			}
-			await s.save();
+		// Distribute payouts (same logic as checkWinCondition)
+		const participants = await UserElection.find({
+			electionId: objectId,
+			hasVoted: true,
+		});
+
+		for (const participant of participants) {
+			const user = await getUser(participant.username);
+			const payout = participant.payouts.get(winner) || 0;
+			user.balance += payout;
 			await user.save();
 		}
 
-		io.to(`election:${electionId}`).emit("election:resolved", {
-			winner,
-			results: stakes,
-		});
+		io.to(`election:${electionId}`).emit("election:resolved", { winner });
 
-		// Emit updated balances after resolution
 		const users = await User.find({}, { username: 1, balance: 1 });
 		io.to(`election:${electionId}`).emit("balances:update", users);
 
@@ -308,30 +392,57 @@ io.on("connection", (socket) => {
 			const user = await getUser(username);
 
 			const objectId = toObjectId(electionId);
-			console.log("🔍 Looking for election with ID:", objectId);
-
 			const election = await Election.findById(objectId);
 
 			if (!election) {
-				console.error("❌ Election not found for ID:", electionId);
+				console.error("❌ Election not found");
 				socket.emit("error", { message: "Election not found" });
 				return;
 			}
 
-			console.log("✅ Election found:", election.title);
+			// Get or create user election record (generates payouts if first time)
+			const userElection = await getUserElectionRecord(username, objectId);
 
-			// Send chat history to the user who just joined
+			// Give entry bonus if first time joining
+			if (!userElection.hasReceivedBonus) {
+				const bonus = election.entryBonus || 200;
+				user.balance += bonus;
+				await user.save();
+
+				userElection.hasReceivedBonus = true;
+				await userElection.save();
+
+				console.log(`💰 ${username} received ${bonus} coin entry bonus`);
+
+				// Send welcome message
+				const welcomeMsg = new Message({
+					electionId: objectId,
+					username: "SYSTEM",
+					message: `${username} joined the election and received ${bonus} coins! 🎁`,
+				});
+				await welcomeMsg.save();
+				io.to(`election:${electionId}`).emit("chat:message", welcomeMsg);
+			}
+
+			// Send chat history
 			const chatHistory = await Message.find({
 				electionId: objectId,
 			}).sort({ time: 1 });
 
-			console.log(`📜 Sending ${chatHistory.length} messages`);
 			socket.emit("chat:history", chatHistory);
+
+			// Convert payouts Map to object
+			const payouts = {};
+			for (const [candidate, amount] of userElection.payouts.entries()) {
+				payouts[candidate] = amount;
+			}
 
 			socket.emit("joined", {
 				username,
 				balance: user.balance,
 				election,
+				payouts, // Send user's personalized payouts
+				hasVoted: userElection.hasVoted,
 			});
 
 			// Send current vote counts
@@ -343,7 +454,7 @@ io.on("connection", (socket) => {
 			}
 			socket.emit("votes:update", voteCounts);
 
-			// Send current balances immediately on join
+			// Send current balances
 			const users = await User.find({}, { username: 1, balance: 1 });
 			io.emit("balances:update", users);
 		} catch (err) {
