@@ -1,7 +1,11 @@
 import express from "express";
 import http from "http";
-import { Server } from "socket.io"; // Ensure the casing matches the actual directory
+import { Server } from "socket.io";
 import cors from "cors";
+import mongoose from "mongoose";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const app = express();
 app.use(cors());
@@ -10,54 +14,153 @@ app.use(express.json());
 // HTTP server
 const server = http.createServer(app);
 
-// Socket.IO setup
-const io = new Server(server, {
-	cors: { origin: "*" },
-});
+// MongoDB connection
+await mongoose
+	.connect(process.env.MONGODB_URI)
+	.then(() => console.log("✅ MongoDB connected"))
+	.catch((err) => console.error("MongoDB connection error:", err));
 
 // ----------------------
-// In-memory data
+// Schemas & Models
 // ----------------------
-let users = []; // { username, balance }
-let elections = [
-	{
-		id: "A",
-		title: "Election A",
-		candidates: ["Gerry", "Alex"],
-		stakes: [],
-		chat: [],
-		status: "open",
-		winner: null,
+const userSchema = new mongoose.Schema({
+	username: { type: String, unique: true },
+	balance: { type: Number, default: 1000 },
+});
+
+const electionSchema = new mongoose.Schema({
+	title: String,
+	candidates: [String],
+	status: { type: String, default: "open" },
+	winner: { type: String, default: null },
+	voteThreshold: { type: Number, default: 100 }, // Votes needed to win
+	voteCounts: {
+		type: Map,
+		of: Number,
+		default: {},
 	},
-];
+});
+
+const stakeSchema = new mongoose.Schema({
+	username: String,
+	electionId: mongoose.Schema.Types.ObjectId,
+	candidate: String,
+	amount: Number,
+	balanceChange: { type: Number, default: 0 },
+});
+
+const messageSchema = new mongoose.Schema({
+	electionId: mongoose.Schema.Types.ObjectId,
+	username: String,
+	message: String,
+	time: { type: Date, default: Date.now },
+});
+
+const User = mongoose.model("User", userSchema);
+const Election = mongoose.model("Election", electionSchema);
+const Stake = mongoose.model("Stake", stakeSchema);
+const Message = mongoose.model("Message", messageSchema);
 
 // ----------------------
 // Helper functions
 // ----------------------
-function getUser(username) {
-	let user = users.find((u) => u.username === username);
+async function getUser(username) {
+	let user = await User.findOne({ username });
 	if (!user) {
-		user = { username, balance: 1000 };
-		users.push(user);
+		user = new User({ username });
+		await user.save();
 	}
 	return user;
 }
 
-function getElection(id) {
-	return elections.find((e) => e.id === id);
+async function checkWinCondition(election) {
+	if (election.status === "closed") return null;
+
+	const voteCounts = election.voteCounts || new Map();
+
+	for (const [candidate, count] of voteCounts.entries()) {
+		if (count >= election.voteThreshold) {
+			// We have a winner!
+			election.status = "closed";
+			election.winner = candidate;
+			await election.save();
+
+			// Award payouts
+			const stakes = await Stake.find({ electionId: election._id });
+			for (const s of stakes) {
+				const user = await getUser(s.username);
+				if (s.candidate === candidate) {
+					s.balanceChange = s.amount * 2;
+					user.balance += s.balanceChange;
+				}
+				await s.save();
+				await user.save();
+			}
+
+			return candidate;
+		}
+	}
+
+	return null;
 }
+
+const io = new Server(server, { cors: { origin: "*" } });
 
 // ----------------------
 // API routes
 // ----------------------
-app.get("/elections", (req, res) => {
-	res.json(elections.map(({ chat, ...rest }) => rest));
+app.get("/users", async (req, res) => {
+	try {
+		const users = await User.find({}, { username: 1, balance: 1 });
+		res.json(users);
+	} catch (err) {
+		console.error("Error fetching users:", err);
+		res.status(500).json({ error: "Failed to fetch users" });
+	}
 });
 
-app.post("/stake", (req, res) => {
+// Get all elections
+app.get("/elections", async (req, res) => {
+	try {
+		const elections = await Election.find();
+		res.json(elections);
+	} catch (err) {
+		console.error("Error fetching elections:", err);
+		res.status(500).json({ error: "Failed to fetch elections" });
+	}
+});
+
+// Get vote counts for an election
+app.get("/votes/:electionId", async (req, res) => {
+	try {
+		const election = await Election.findById(req.params.electionId);
+		if (!election) {
+			return res.status(404).json({ error: "Election not found" });
+		}
+
+		const voteCounts = {};
+		if (election.voteCounts) {
+			for (const [candidate, count] of election.voteCounts.entries()) {
+				voteCounts[candidate] = count;
+			}
+		}
+
+		res.json({
+			votes: voteCounts,
+			threshold: election.voteThreshold,
+			winner: election.winner,
+			status: election.status,
+		});
+	} catch (err) {
+		console.error("Error fetching votes:", err);
+		res.status(500).json({ error: "Failed to fetch votes" });
+	}
+});
+
+app.post("/stake", async (req, res) => {
 	const { username, electionId, candidate, amount } = req.body;
-	const election = getElection(electionId);
-	const user = getUser(username);
+	const election = await Election.findById(electionId);
+	const user = await getUser(username);
 
 	if (!election || election.status !== "open") {
 		return res.status(400).json({ error: "Election closed or not found" });
@@ -66,9 +169,23 @@ app.post("/stake", (req, res) => {
 		return res.status(400).json({ error: "Not enough balance" });
 	}
 
+	// Deduct balance
 	user.balance -= amount;
-	election.stakes.push({ username, candidate, amount, balanceChange: 0 });
+	await user.save();
 
+	// Save stake
+	const stake = new Stake({ username, electionId, candidate, amount });
+	await stake.save();
+
+	// Update vote count
+	if (!election.voteCounts) {
+		election.voteCounts = new Map();
+	}
+	const currentVotes = election.voteCounts.get(candidate) || 0;
+	election.voteCounts.set(candidate, currentVotes + 1);
+	await election.save();
+
+	// Emit stake event to this election room
 	io.to(`election:${electionId}`).emit("stake:placed", {
 		username,
 		candidate,
@@ -76,75 +193,105 @@ app.post("/stake", (req, res) => {
 		balance: user.balance,
 	});
 
+	// Emit updated vote counts
+	const voteCounts = {};
+	for (const [cand, count] of election.voteCounts.entries()) {
+		voteCounts[cand] = count;
+	}
+	io.to(`election:${electionId}`).emit("votes:update", voteCounts);
+
+	// Check for win condition
+	const winner = await checkWinCondition(election);
+	if (winner) {
+		io.to(`election:${electionId}`).emit("election:resolved", {
+			winner,
+			results: await Stake.find({ electionId }),
+		});
+
+		// Broadcast announcement
+		const announcement = new Message({
+			electionId,
+			username: "SYSTEM",
+			message: `🎉 ${winner} has won the election with ${election.voteThreshold} votes!`,
+		});
+		await announcement.save();
+		io.to(`election:${electionId}`).emit("chat:message", announcement);
+	}
+
+	// Emit updated balances to everyone
+	const users = await User.find({}, { username: 1, balance: 1 });
+	io.to(`election:${electionId}`).emit("balances:update", users);
+
 	res.json({ success: true, balance: user.balance });
 });
 
-app.post("/transfer", (req, res) => {
-	const { from, to, amount } = req.body;
-	const sender = getUser(from);
-	const receiver = getUser(to);
-
-	if (sender.balance < amount) {
-		return res.status(400).json({ error: "Insufficient funds" });
-	}
-
-	sender.balance -= amount;
-	receiver.balance += amount;
-
-	io.emit("balances:update", users);
-	res.json({ success: true });
-});
-
-app.post("/resolve", (req, res) => {
+app.post("/resolve", async (req, res) => {
 	const { electionId, winner } = req.body;
-	const election = getElection(electionId);
+	const election = await Election.findById(electionId);
 	if (!election) return res.status(404).json({ error: "Election not found" });
 
 	election.status = "closed";
 	election.winner = winner;
+	await election.save();
 
-	for (const s of election.stakes) {
+	const stakes = await Stake.find({ electionId });
+	for (const s of stakes) {
+		const user = await getUser(s.username);
 		if (s.candidate === winner) {
 			s.balanceChange = s.amount * 2;
-		} else {
-			s.balanceChange = 0;
+			user.balance += s.balanceChange;
 		}
-		const user = getUser(s.username);
-		user.balance += s.balanceChange;
+		await s.save();
+		await user.save();
 	}
 
 	io.to(`election:${electionId}`).emit("election:resolved", {
 		winner,
-		results: election.stakes,
+		results: stakes,
 	});
 
-	io.emit("balances:update", users);
+	// Emit updated balances after resolution
+	const users = await User.find({}, { username: 1, balance: 1 });
+	io.to(`election:${electionId}`).emit("balances:update", users);
+
 	res.json({ success: true, winner });
 });
 
 // ----------------------
 // Socket.IO handlers
 // ----------------------
+
 io.on("connection", (socket) => {
 	console.log("A user connected");
 
-	socket.on("join", ({ username, electionId }) => {
+	socket.on("join", async ({ username, electionId }) => {
 		socket.join(`election:${electionId}`);
-		const user = getUser(username);
+		const user = await getUser(username);
+		const election = await Election.findById(electionId);
 
 		socket.emit("joined", {
 			username,
 			balance: user.balance,
-			election: getElection(electionId),
+			election,
 		});
+
+		// Send current vote counts
+		const voteCounts = {};
+		if (election.voteCounts) {
+			for (const [candidate, count] of election.voteCounts.entries()) {
+				voteCounts[candidate] = count;
+			}
+		}
+		socket.emit("votes:update", voteCounts);
+
+		// Send current balances immediately on join
+		const users = await User.find({}, { username: 1, balance: 1 });
+		io.emit("balances:update", users);
 	});
 
-	socket.on("chat:message", ({ electionId, username, message }) => {
-		const election = getElection(electionId);
-		if (!election) return;
-
-		const chatMsg = { username, message, time: Date.now() };
-		election.chat.push(chatMsg);
+	socket.on("chat:message", async ({ electionId, username, message }) => {
+		const chatMsg = new Message({ electionId, username, message });
+		await chatMsg.save();
 
 		io.to(`election:${electionId}`).emit("chat:message", chatMsg);
 	});
@@ -157,7 +304,7 @@ io.on("connection", (socket) => {
 // ----------------------
 // Start server
 // ----------------------
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 server.listen(PORT, () =>
-	console.log(`✅ Server running on http://localhost:${PORT}`)
+	console.log(`✅ Server running on http://localhost:${PORT}`),
 );
