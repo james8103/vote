@@ -10,15 +10,13 @@ export default function ElectionRoom({ username, election, onExit }) {
 	const [voteCounts, setVoteCounts] = useState({});
 	const [voteThreshold, setVoteThreshold] = useState(100);
 	const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+	const [votingInProgress, setVotingInProgress] = useState(false);
+
+	// Get the correct election ID
+	const electionId = election._id || election.id;
 
 	useEffect(() => {
-		console.log("🔍 ElectionRoom mounted with election:", election);
-		console.log("🔍 Election ID:", election.id);
-		console.log("🔍 Election _id:", election._id);
-
-		// Use _id if it exists, otherwise use id
-		const electionId = election._id || election.id;
-		console.log("🔍 Using electionId:", electionId);
+		console.log("🔍 Election ID being used:", electionId);
 
 		// Connect to your Render backend
 		const s = io("https://vote-backend-jofd.onrender.com");
@@ -34,7 +32,6 @@ export default function ElectionRoom({ username, election, onExit }) {
 		// Listen for chat history when joining
 		s.on("chat:history", (messages) => {
 			console.log("📜 Received chat history:", messages.length, "messages");
-			console.log("📜 Messages:", messages);
 			setChat(messages);
 			setIsLoadingHistory(false);
 		});
@@ -45,15 +42,17 @@ export default function ElectionRoom({ username, election, onExit }) {
 		});
 
 		s.on("stake:placed", (data) => {
-			console.log("Stake placed", data);
+			console.log("✅ Stake placed:", data);
 		});
 
 		s.on("election:resolved", ({ winner, results }) => {
+			console.log("🎉 Election resolved, winner:", winner);
 			setWinner(winner);
 		});
 
 		// Listen for vote count updates
 		s.on("votes:update", (votes) => {
+			console.log("📊 Vote counts updated:", votes);
 			setVoteCounts(votes);
 		});
 
@@ -77,13 +76,20 @@ export default function ElectionRoom({ username, election, onExit }) {
 				users.forEach((u) => (obj[u.username] = u.balance));
 				setBalances(obj);
 			})
-			.catch((err) => console.error("Error fetching initial balances:", err));
+			.catch((err) =>
+				console.error("❌ Error fetching initial balances:", err),
+			);
 
 		// Fetch initial vote counts
 		const votesUrl = `https://vote-backend-jofd.onrender.com/votes/${electionId}`;
 		console.log("🔍 Fetching votes from:", votesUrl);
 		fetch(votesUrl)
-			.then((res) => res.json())
+			.then((res) => {
+				if (!res.ok) {
+					throw new Error(`HTTP ${res.status}`);
+				}
+				return res.json();
+			})
 			.then((data) => {
 				console.log("📊 Vote data:", data);
 				setVoteCounts(data.votes || {});
@@ -92,7 +98,7 @@ export default function ElectionRoom({ username, election, onExit }) {
 					setWinner(data.winner);
 				}
 			})
-			.catch((err) => console.error("Error fetching vote counts:", err));
+			.catch((err) => console.error("❌ Error fetching vote counts:", err));
 
 		// Fetch chat history (backup method if socket doesn't deliver)
 		const messagesUrl = `https://vote-backend-jofd.onrender.com/messages/${electionId}`;
@@ -101,6 +107,9 @@ export default function ElectionRoom({ username, election, onExit }) {
 		fetch(messagesUrl)
 			.then((res) => {
 				console.log("📡 Messages response status:", res.status);
+				if (!res.ok) {
+					throw new Error(`HTTP ${res.status}`);
+				}
 				return res.json();
 			})
 			.then((messages) => {
@@ -109,7 +118,6 @@ export default function ElectionRoom({ username, election, onExit }) {
 					messages.length,
 					"messages",
 				);
-				console.log("📜 Messages content:", messages);
 
 				// Only set if we haven't received via socket yet
 				setChat((prevChat) => {
@@ -117,7 +125,6 @@ export default function ElectionRoom({ username, election, onExit }) {
 						console.log("✅ Setting chat from HTTP response");
 						return messages;
 					}
-					console.log("⏭️ Skipping HTTP messages (already have chat)");
 					return prevChat;
 				});
 				setIsLoadingHistory(false);
@@ -131,11 +138,74 @@ export default function ElectionRoom({ username, election, onExit }) {
 			console.log("🔌 Disconnecting socket");
 			s.disconnect();
 		};
-	}, [username, election]);
+	}, [username, electionId]);
+
+	const handleVote = async (candidate) => {
+		if (votingInProgress) {
+			console.log("⏳ Vote already in progress, ignoring");
+			return;
+		}
+
+		setVotingInProgress(true);
+		console.log("🗳️ Voting for:", candidate, "with electionId:", electionId);
+
+		try {
+			const response = await fetch(
+				"https://vote-backend-jofd.onrender.com/stake",
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify({
+						username,
+						electionId,
+						candidate,
+						amount: 50,
+					}),
+				},
+			);
+
+			console.log("📡 Stake response status:", response.status);
+
+			if (!response.ok) {
+				const errorData = await response.json().catch(() => ({}));
+				console.error("❌ Stake failed:", errorData);
+				alert(errorData.error || "Failed to place vote");
+				setVotingInProgress(false);
+				return;
+			}
+
+			const data = await response.json();
+			console.log("✅ Stake successful:", data);
+
+			// Update local balance immediately
+			setBalances((prev) => ({
+				...prev,
+				[username]: data.balance,
+			}));
+
+			// Force pull balances from server as backup
+			fetch("https://vote-backend-jofd.onrender.com/users")
+				.then((res) => res.json())
+				.then((users) => {
+					const obj = {};
+					users.forEach((u) => (obj[u.username] = u.balance));
+					setBalances(obj);
+				})
+				.catch((err) =>
+					console.error("❌ Error fetching updated balances:", err),
+				);
+		} catch (err) {
+			console.error("❌ Error placing stake:", err);
+			alert("Network error: " + err.message);
+		} finally {
+			setVotingInProgress(false);
+		}
+	};
 
 	const sendMessage = () => {
 		if (message.trim() !== "") {
-			const electionId = election._id || election.id;
 			console.log("📤 Sending message to electionId:", electionId);
 			socket.emit("chat:message", {
 				electionId,
@@ -160,19 +230,12 @@ export default function ElectionRoom({ username, election, onExit }) {
 		});
 	};
 
-	const electionId = election._id || election.id;
-
 	return (
 		<div className="p-6">
 			<button onClick={onExit} className="mb-4 text-blue-600 underline">
 				← Back
 			</button>
 			<h1 className="text-2xl font-bold mb-2">{election.title}</h1>
-
-			{/* Debug info - remove this later */}
-			<div className="text-xs text-gray-500 mb-2">
-				Election ID: {electionId} | Messages loaded: {chat.length}
-			</div>
 
 			{winner && (
 				<div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
@@ -261,35 +324,19 @@ export default function ElectionRoom({ username, election, onExit }) {
 									</div>
 
 									<button
-										onClick={() => {
-											fetch("https://vote-backend-jofd.onrender.com/stake", {
-												method: "POST",
-												headers: { "Content-Type": "application/json" },
-												body: JSON.stringify({
-													username,
-													electionId,
-													candidate: c,
-													amount: 50,
-												}),
-											}).then(() => {
-												// Force pull balances if websocket missed an event
-												fetch("https://vote-backend-jofd.onrender.com/users")
-													.then((res) => res.json())
-													.then((users) => {
-														const obj = {};
-														users.forEach((u) => (obj[u.username] = u.balance));
-														setBalances(obj);
-													});
-											});
-										}}
-										disabled={winner !== null}
+										onClick={() => handleVote(c)}
+										disabled={winner !== null || votingInProgress}
 										className={`w-full px-3 py-1 rounded ${
-											winner
+											winner || votingInProgress
 												? "bg-gray-300 cursor-not-allowed"
 												: "bg-green-500 text-white hover:bg-green-600"
 										}`}
 									>
-										{winner ? "Election Ended" : `Vote for ${c} (50 coins)`}
+										{winner
+											? "Election Ended"
+											: votingInProgress
+												? "Voting..."
+												: `Vote for ${c} (50 coins)`}
 									</button>
 								</li>
 							);
