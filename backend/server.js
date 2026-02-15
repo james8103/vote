@@ -115,6 +115,20 @@ app.get("/votes/:electionId", async (req, res) => {
 	}
 });
 
+// NEW: Get chat history for an election
+app.get("/messages/:electionId", async (req, res) => {
+	try {
+		const messages = await Message.find({
+			electionId: req.params.electionId,
+		}).sort({ time: 1 }); // Sort by time ascending (oldest first)
+
+		res.json(messages);
+	} catch (err) {
+		console.error("Error fetching messages:", err);
+		res.status(500).json({ error: "Failed to fetch messages" });
+	}
+});
+
 app.post("/stake", async (req, res) => {
 	try {
 		const { username, electionId, candidate, amount } = req.body;
@@ -236,6 +250,10 @@ io.on("connection", (socket) => {
 			socket.join(`election:${electionId}`);
 			const user = await getUser(username);
 			const election = await Election.findById(electionId);
+
+			// Send chat history to the user who just joined
+			const chatHistory = await Message.find({ electionId }).sort({ time: 1 });
+			socket.emit("chat:history", chatHistory);
 
 			socket.emit("joined", {
 				username,

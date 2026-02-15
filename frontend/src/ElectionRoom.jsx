@@ -8,7 +8,8 @@ export default function ElectionRoom({ username, election, onExit }) {
 	const [balances, setBalances] = useState({});
 	const [winner, setWinner] = useState(null);
 	const [voteCounts, setVoteCounts] = useState({});
-	const [voteThreshold, setVoteThreshold] = useState(100); // Default win threshold
+	const [voteThreshold, setVoteThreshold] = useState(100);
+	const [isLoadingHistory, setIsLoadingHistory] = useState(true);
 
 	useEffect(() => {
 		// Connect to your Render backend
@@ -16,6 +17,13 @@ export default function ElectionRoom({ username, election, onExit }) {
 
 		s.on("joined", (data) => {
 			console.log("Joined:", data);
+		});
+
+		// Listen for chat history when joining
+		s.on("chat:history", (messages) => {
+			console.log("Received chat history:", messages);
+			setChat(messages);
+			setIsLoadingHistory(false);
 		});
 
 		s.on("chat:message", (msg) => {
@@ -62,8 +70,25 @@ export default function ElectionRoom({ username, election, onExit }) {
 			.then((data) => {
 				setVoteCounts(data.votes || {});
 				setVoteThreshold(data.threshold || 100);
+				if (data.winner) {
+					setWinner(data.winner);
+				}
 			})
 			.catch((err) => console.error("Error fetching vote counts:", err));
+
+		// Fetch chat history (backup method if socket doesn't deliver)
+		fetch(`https://vote-backend-jofd.onrender.com/messages/${election.id}`)
+			.then((res) => res.json())
+			.then((messages) => {
+				if (messages.length > 0 && chat.length === 0) {
+					setChat(messages);
+				}
+				setIsLoadingHistory(false);
+			})
+			.catch((err) => {
+				console.error("Error fetching chat history:", err);
+				setIsLoadingHistory(false);
+			});
 
 		return () => s.disconnect();
 	}, [username, election.id]);
@@ -84,6 +109,14 @@ export default function ElectionRoom({ username, election, onExit }) {
 		return Math.min((votes / voteThreshold) * 100, 100);
 	};
 
+	const formatTime = (timestamp) => {
+		const date = new Date(timestamp);
+		return date.toLocaleTimeString([], {
+			hour: "2-digit",
+			minute: "2-digit",
+		});
+	};
+
 	return (
 		<div className="p-6">
 			<button onClick={onExit} className="mb-4 text-blue-600 underline">
@@ -101,10 +134,27 @@ export default function ElectionRoom({ username, election, onExit }) {
 				{/* Chat */}
 				<div className="col-span-2 border rounded p-4 flex flex-col h-[400px]">
 					<div className="flex-1 overflow-y-auto mb-3">
-						{chat.map((m, i) => (
-							<p key={i}>
-								<strong>{m.username}:</strong> {m.message}
+						{isLoadingHistory && (
+							<p className="text-gray-500 text-sm italic">
+								Loading chat history...
 							</p>
+						)}
+						{chat.map((m, i) => (
+							<div key={i} className="mb-2">
+								<span className="text-xs text-gray-500 mr-2">
+									{formatTime(m.time)}
+								</span>
+								<strong
+									className={m.username === "SYSTEM" ? "text-blue-600" : ""}
+								>
+									{m.username}:
+								</strong>{" "}
+								<span
+									className={m.username === "SYSTEM" ? "text-blue-600" : ""}
+								>
+									{m.message}
+								</span>
+							</div>
 						))}
 					</div>
 					<div className="flex gap-2">
