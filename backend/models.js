@@ -21,10 +21,8 @@ const electionSchema = new mongoose.Schema({
 	},
 	entryBonus: { type: Number, default: 200 }, // Coins given on first join
 	voteCost: { type: Number, default: 50 }, // Cost to vote
-	isVisible: { type: Boolean, default: true }, // NEW: Controls if users can see this election
+	isVisible: { type: Boolean, default: true }, //Controls if users can see this election
 	createdAt: { type: Date, default: Date.now },
-	startsAt: { type: Date, default: null }, // Optional: when election becomes visible
-	endsAt: { type: Date, default: null }, // Optional: when election closes
 });
 
 // Stake Schema (tracks who voted for whom)

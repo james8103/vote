@@ -19,7 +19,7 @@ const server = http.createServer(app);
 // MongoDB connection
 await mongoose
 	.connect(process.env.MONGODB_URI)
-	.then(() => console.log("✅ MongoDB connected"))
+	.then(() => console.log("MongoDB connected"))
 	.catch((err) => console.error("MongoDB connection error:", err));
 
 // ----------------------
@@ -72,7 +72,7 @@ async function getUserElectionRecord(username, electionId) {
 		});
 
 		await userElection.save();
-		console.log(`✨ Generated payouts for ${username}:`, payouts);
+		console.log(`Generated payouts for ${username}:`, payouts);
 	}
 
 	return userElection;
@@ -85,12 +85,12 @@ async function checkWinCondition(election) {
 
 	for (const [candidate, count] of voteCounts.entries()) {
 		if (count >= election.voteThreshold) {
-			// We have a winner!
+			//winner!
 			election.status = "closed";
 			election.winner = candidate;
 			await election.save();
 
-			console.log(`🎉 ${candidate} won! Distributing payouts...`);
+			console.log(`${candidate} won! Distributing payouts...`);
 
 			// Get all users who participated in this election
 			const participants = await UserElection.find({
@@ -107,7 +107,7 @@ async function checkWinCondition(election) {
 				await user.save();
 
 				console.log(
-					`💰 ${participant.username}: ${payout > 0 ? "+" : ""}${payout} coins (new balance: ${user.balance})`,
+					`${participant.username}: ${payout > 0 ? "+" : ""}${payout} coins (new balance: ${user.balance})`,
 				);
 
 				// Update stake record with payout info
@@ -180,7 +180,7 @@ app.patch("/elections/:electionId/visibility", async (req, res) => {
 		election.isVisible = isVisible;
 		await election.save();
 
-		console.log(`👁️ ${election.title} visibility set to: ${isVisible}`);
+		console.log(`${election.title} visibility set to: ${isVisible}`);
 		res.json({ success: true, isVisible: election.isVisible });
 	} catch (err) {
 		console.error("Error updating visibility:", err);
@@ -257,7 +257,7 @@ app.get("/payouts/:electionId/:username", async (req, res) => {
 app.post("/stake", async (req, res) => {
 	try {
 		const { username, electionId, candidate, amount } = req.body;
-		console.log("📥 Vote request:", { username, electionId, candidate });
+		console.log("Vote request:", { username, electionId, candidate });
 
 		const objectId = toObjectId(electionId);
 		const election = await Election.findById(objectId);
@@ -322,7 +322,7 @@ app.post("/stake", async (req, res) => {
 		await election.save();
 
 		console.log(
-			`✅ ${username} voted for ${candidate}. New count: ${currentVotes + 1}`,
+			`${username} voted for ${candidate}. New count: ${currentVotes + 1}`,
 		);
 
 		// Emit updates
@@ -361,7 +361,7 @@ app.post("/stake", async (req, res) => {
 			const announcement = new Message({
 				electionId: objectId,
 				username: "SYSTEM",
-				message: `🎉 ${winner} has won the election! Payouts distributed. Check your balance!`,
+				message: `${winner} has won the election! Payouts distributed. Check your balance!`,
 			});
 			await announcement.save();
 			io.to(`election:${electionId}`).emit("chat:message", announcement);
@@ -373,7 +373,7 @@ app.post("/stake", async (req, res) => {
 
 		res.json({ success: true, balance: user.balance });
 	} catch (err) {
-		console.error("❌ Error in /stake:", err);
+		console.error("Error in /stake:", err);
 		res.status(500).json({ error: err.message });
 	}
 });
@@ -423,7 +423,7 @@ io.on("connection", (socket) => {
 
 	socket.on("join", async ({ username, electionId }) => {
 		try {
-			console.log("👋 Join request:", { username, electionId });
+			console.log("Join request:", { username, electionId });
 
 			socket.join(`election:${electionId}`);
 			const user = await getUser(username);
@@ -432,14 +432,14 @@ io.on("connection", (socket) => {
 			const election = await Election.findById(objectId);
 
 			if (!election) {
-				console.error("❌ Election not found");
+				console.error("Election not found");
 				socket.emit("error", { message: "Election not found" });
 				return;
 			}
 
 			// Check if election is visible
 			if (!election.isVisible) {
-				console.error("❌ Election not visible");
+				console.error("Election not visible");
 				socket.emit("error", { message: "Election is not available" });
 				return;
 			}
@@ -456,13 +456,13 @@ io.on("connection", (socket) => {
 				userElection.hasReceivedBonus = true;
 				await userElection.save();
 
-				console.log(`💰 ${username} received ${bonus} coin entry bonus`);
+				console.log(`${username} received ${bonus} coin entry bonus`);
 
 				// Send welcome message
 				const welcomeMsg = new Message({
 					electionId: objectId,
 					username: "SYSTEM",
-					message: `${username} joined the election and received ${bonus} coins! 🎁`,
+					message: `${username} joined the election and received ${bonus} coins`,
 				});
 				await welcomeMsg.save();
 				io.to(`election:${electionId}`).emit("chat:message", welcomeMsg);
@@ -502,7 +502,7 @@ io.on("connection", (socket) => {
 			const users = await User.find({}, { username: 1, balance: 1 });
 			io.emit("balances:update", users);
 		} catch (err) {
-			console.error("❌ Error on join:", err);
+			console.error("Error on join:", err);
 			socket.emit("error", { message: "Failed to join election" });
 		}
 	});
@@ -534,5 +534,5 @@ io.on("connection", (socket) => {
 // ----------------------
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () =>
-	console.log(`✅ Server running on http://localhost:${PORT}`),
+	console.log(`Server running on http://localhost:${PORT}`),
 );

@@ -6,7 +6,7 @@ dotenv.config();
 
 await mongoose
 	.connect(process.env.MONGODB_URI)
-	.then(() => console.log("✅ MongoDB connected"))
+	.then(() => console.log("MongoDB connected"))
 	.catch((err) => {
 		console.error("MongoDB connection error:", err);
 		process.exit(1);
@@ -14,12 +14,12 @@ await mongoose
 
 async function seedDatabase() {
 	try {
-		// Clear existing data
+		//Clear existing data
 		console.log("Clearing existing data...");
 		await User.deleteMany({});
 		await Election.deleteMany({});
 
-		// Also clear UserElection collection if it exists
+		//clear UserElection collection if it exists
 		try {
 			await mongoose.connection.collection("userelections").deleteMany({});
 			await mongoose.connection.collection("stakes").deleteMany({});
@@ -28,7 +28,7 @@ async function seedDatabase() {
 			console.log("Collections don't exist yet (this is fine)");
 		}
 
-		// Insert sample users with base balance
+		//Insert sample users with base balance
 		console.log("Creating users...");
 		await User.insertMany([
 			{ username: "Alice", balance: 1000 },
@@ -39,7 +39,7 @@ async function seedDatabase() {
 			{ username: "Frank", balance: 1000 },
 		]);
 
-		// Create diverse sample elections
+		//Create diverse sample elections
 		console.log("Creating elections...");
 		const elections = await Election.insertMany([
 			{
@@ -51,7 +51,7 @@ async function seedDatabase() {
 				voteThreshold: 10,
 				entryBonus: 200,
 				voteCost: 50,
-				isVisible: true, // Currently active
+				isVisible: true,
 				voteCounts: new Map([
 					["Sports Programs", 0],
 					["Arts & Culture", 0],
@@ -109,7 +109,7 @@ async function seedDatabase() {
 				voteThreshold: 15,
 				entryBonus: 300,
 				voteCost: 70,
-				isVisible: false, // Hidden - not ready yet
+				isVisible: false,
 				voteCounts: new Map([
 					["Break Room", 0],
 					["Conference Rooms", 0],
@@ -125,8 +125,7 @@ async function seedDatabase() {
 				voteThreshold: 10,
 				entryBonus: 200,
 				voteCost: 50,
-				isVisible: false, // Hidden - scheduled for later
-				startsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // Starts in 1 week
+				isVisible: false,
 				voteCounts: new Map([
 					["Masquerade Ball", 0],
 					["Casino Night", 0],
@@ -182,7 +181,7 @@ async function seedDatabase() {
 				voteThreshold: 10,
 				entryBonus: 200,
 				voteCost: 50,
-				isVisible: false, // Hidden - planning phase
+				isVisible: false,
 				voteCounts: new Map([
 					["First Week December", 0],
 					["Second Week December", 0],
@@ -218,7 +217,7 @@ async function seedDatabase() {
 				voteThreshold: 10,
 				entryBonus: 200,
 				voteCost: 50,
-				isVisible: false, // Hidden - contest not announced yet
+				isVisible: false,
 				voteCounts: new Map([
 					["Phoenix", 0],
 					["Dragon", 0],
@@ -228,15 +227,15 @@ async function seedDatabase() {
 			},
 		]);
 
-		console.log("✅ Database seeded successfully");
+		console.log("Database seeded successfully");
 		console.log(`\nCreated ${elections.length} elections:`);
 		console.log(`  - ${elections.filter((e) => e.isVisible).length} visible`);
 		console.log(`  - ${elections.filter((e) => !e.isVisible).length} hidden`);
 		console.log(`\nCreated ${await User.countDocuments()} users`);
 
-		console.log("\n📊 Election Summary:");
+		console.log("\nElection Summary:");
 		for (const election of elections) {
-			const visibilityIcon = election.isVisible ? "👁️ " : "🔒";
+			const visibilityIcon = election.isVisible ? "Visible" : "Hidden";
 			console.log(`  ${visibilityIcon} ${election.title}`);
 			console.log(`     - ${election.candidates.length} candidates`);
 			console.log(`     - Win threshold: ${election.voteThreshold} votes`);

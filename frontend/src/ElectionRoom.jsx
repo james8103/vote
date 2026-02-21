@@ -18,20 +18,20 @@ export default function ElectionRoom({ username, election, onExit }) {
 	const electionId = election._id || election.id;
 
 	useEffect(() => {
-		console.log("🔍 Election ID:", electionId);
+		console.log("Election ID:", electionId);
 
 		const s = io("https://vote-backend-jofd.onrender.com");
 
 		s.on("connect", () => {
-			console.log("✅ Socket connected");
+			console.log("Socket connected");
 		});
 
 		s.on("joined", (data) => {
-			console.log("✅ Joined:", data);
+			console.log("Joined:", data);
 
 			// Set personalized payouts
 			if (data.payouts) {
-				console.log("💰 My payouts:", data.payouts);
+				console.log("My payouts:", data.payouts);
 				setUserPayouts(data.payouts);
 			}
 
@@ -42,7 +42,7 @@ export default function ElectionRoom({ username, election, onExit }) {
 		});
 
 		s.on("chat:history", (messages) => {
-			console.log("📜 Received chat history:", messages.length, "messages");
+			console.log("Received chat history:", messages.length, "messages");
 			setChat(messages);
 			setIsLoadingHistory(false);
 		});
@@ -52,11 +52,11 @@ export default function ElectionRoom({ username, election, onExit }) {
 		});
 
 		s.on("stake:placed", (data) => {
-			console.log("✅ Vote placed:", data);
+			console.log("Vote placed:", data);
 		});
 
 		s.on("election:resolved", ({ winner, results }) => {
-			console.log("🎉 Election resolved, winner:", winner);
+			console.log("Election resolved, winner:", winner);
 			setWinner(winner);
 
 			// Show payout result for this user
@@ -73,7 +73,7 @@ export default function ElectionRoom({ username, election, onExit }) {
 		});
 
 		s.on("votes:update", (votes) => {
-			console.log("📊 Vote counts updated:", votes);
+			console.log("Vote counts updated:", votes);
 			setVoteCounts(votes);
 		});
 
@@ -83,7 +83,7 @@ export default function ElectionRoom({ username, election, onExit }) {
 			setBalances(obj);
 		});
 
-		console.log("🚀 Emitting join event");
+		console.log("Emitting join event");
 		s.emit("join", { username, electionId });
 
 		setSocket(s);
@@ -96,7 +96,7 @@ export default function ElectionRoom({ username, election, onExit }) {
 				users.forEach((u) => (obj[u.username] = u.balance));
 				setBalances(obj);
 			})
-			.catch((err) => console.error("❌ Error fetching balances:", err));
+			.catch((err) => console.error("Error fetching balances:", err));
 
 		// Fetch vote info
 		fetch(`https://vote-backend-jofd.onrender.com/votes/${electionId}`)
@@ -109,7 +109,7 @@ export default function ElectionRoom({ username, election, onExit }) {
 					setWinner(data.winner);
 				}
 			})
-			.catch((err) => console.error("❌ Error fetching votes:", err));
+			.catch((err) => console.error("Error fetching votes:", err));
 
 		// Fetch chat history
 		fetch(`https://vote-backend-jofd.onrender.com/messages/${electionId}`)
@@ -124,7 +124,7 @@ export default function ElectionRoom({ username, election, onExit }) {
 				setIsLoadingHistory(false);
 			})
 			.catch((err) => {
-				console.error("❌ Error fetching chat:", err);
+				console.error("Error fetching chat:", err);
 				setIsLoadingHistory(false);
 			});
 
@@ -134,11 +134,11 @@ export default function ElectionRoom({ username, election, onExit }) {
 		)
 			.then((res) => res.json())
 			.then((data) => {
-				console.log("💰 Fetched payouts:", data.payouts);
+				console.log("Fetched payouts:", data.payouts);
 				setUserPayouts(data.payouts);
 				setHasVoted(data.hasVoted);
 			})
-			.catch((err) => console.error("❌ Error fetching payouts:", err));
+			.catch((err) => console.error("Error fetching payouts:", err));
 
 		return () => {
 			console.log("🔌 Disconnecting socket");
@@ -148,12 +148,12 @@ export default function ElectionRoom({ username, election, onExit }) {
 
 	const handleVote = async (candidate) => {
 		if (votingInProgress || hasVoted) {
-			console.log("⏳ Already voted or voting in progress");
+			console.log("Already voted or voting in progress");
 			return;
 		}
 
 		setVotingInProgress(true);
-		console.log("🗳️ Voting for:", candidate);
+		console.log("Voting for:", candidate);
 
 		try {
 			const response = await fetch(
@@ -172,14 +172,14 @@ export default function ElectionRoom({ username, election, onExit }) {
 
 			if (!response.ok) {
 				const errorData = await response.json().catch(() => ({}));
-				console.error("❌ Vote failed:", errorData);
+				console.error("Vote failed:", errorData);
 				alert(errorData.error || "Failed to vote");
 				setVotingInProgress(false);
 				return;
 			}
 
 			const data = await response.json();
-			console.log("✅ Vote successful:", data);
+			console.log("Vote successful:", data);
 
 			setHasVoted(true);
 
@@ -189,7 +189,7 @@ export default function ElectionRoom({ username, election, onExit }) {
 				[username]: data.balance,
 			}));
 		} catch (err) {
-			console.error("❌ Error voting:", err);
+			console.error("Error voting:", err);
 			alert("Network error: " + err.message);
 		} finally {
 			setVotingInProgress(false);
@@ -238,7 +238,7 @@ export default function ElectionRoom({ username, election, onExit }) {
 
 			{winner && (
 				<div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
-					<strong>🎉 Winner: {winner}!</strong>
+					<strong>Winner: {winner}!</strong>
 					{userPayouts[winner] !== undefined && (
 						<span className="ml-2">
 							Your payout:
