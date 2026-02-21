@@ -85,17 +85,17 @@ async function checkWinCondition(election) {
 
 	for (const [candidate, count] of voteCounts.entries()) {
 		if (count >= election.voteThreshold) {
-			//winner!
+			// We have a winner!
 			election.status = "closed";
 			election.winner = candidate;
 			await election.save();
 
-			console.log(`${candidate} won! Distributing payouts...`);
+			console.log(`🎉 ${candidate} won! Distributing payouts...`);
 
 			// Get all users who participated in this election
 			const participants = await UserElection.find({
 				electionId: election._id,
-				hasVoted: true,
+				hasJoined: true, // Changed from hasVoted to hasJoined
 			});
 
 			// Distribute personalized payouts
@@ -109,16 +109,6 @@ async function checkWinCondition(election) {
 				console.log(
 					`${participant.username}: ${payout > 0 ? "+" : ""}${payout} coins (new balance: ${user.balance})`,
 				);
-
-				// Update stake record with payout info
-				const stake = await Stake.findOne({
-					username: participant.username,
-					electionId: election._id,
-				});
-				if (stake) {
-					stake.balanceChange = payout;
-					await stake.save();
-				}
 			}
 
 			return candidate;
@@ -246,7 +236,7 @@ app.get("/payouts/:electionId/:username", async (req, res) => {
 
 		res.json({
 			payouts,
-			hasVoted: userElection.hasVoted,
+			hasVoted: userElection.hasVoted || false,
 		});
 	} catch (err) {
 		console.error("Error fetching payouts:", err);
@@ -290,19 +280,15 @@ app.post("/stake", async (req, res) => {
 		// Get user's election record
 		const userElection = await getUserElectionRecord(username, objectId);
 
-		if (userElection.hasVoted) {
-			return res
-				.status(400)
-				.json({ error: "You have already voted in this election" });
-		}
-
 		// Deduct vote cost
 		user.balance -= voteCost;
 		await user.save();
 
-		// Mark as voted
-		userElection.hasVoted = true;
-		await userElection.save();
+		// Mark that they've voted at least once (for payout eligibility)
+		if (!userElection.hasVoted) {
+			userElection.hasVoted = true;
+			await userElection.save();
+		}
 
 		// Save stake
 		const stake = new Stake({
@@ -344,7 +330,7 @@ app.post("/stake", async (req, res) => {
 		if (winner) {
 			const results = await UserElection.find({
 				electionId: objectId,
-				hasVoted: true,
+				hasJoined: true,
 			});
 
 			const payoutSummary = results.map((r) => ({
@@ -393,7 +379,7 @@ app.post("/resolve", async (req, res) => {
 		// Distribute payouts
 		const participants = await UserElection.find({
 			electionId: objectId,
-			hasVoted: true,
+			hasJoined: true,
 		});
 
 		for (const participant of participants) {
@@ -462,7 +448,7 @@ io.on("connection", (socket) => {
 				const welcomeMsg = new Message({
 					electionId: objectId,
 					username: "SYSTEM",
-					message: `${username} joined the election and received ${bonus} coins`,
+					message: `${username} joined the election and received ${bonus} coins!`,
 				});
 				await welcomeMsg.save();
 				io.to(`election:${electionId}`).emit("chat:message", welcomeMsg);
@@ -486,7 +472,7 @@ io.on("connection", (socket) => {
 				balance: user.balance,
 				election,
 				payouts,
-				hasVoted: userElection.hasVoted,
+				hasVoted: userElection.hasVoted || false,
 			});
 
 			// Send current vote counts
@@ -525,7 +511,7 @@ io.on("connection", (socket) => {
 	});
 
 	socket.on("disconnect", () => {
-		console.log("🔌 User disconnected");
+		console.log("User disconnected");
 	});
 });
 
