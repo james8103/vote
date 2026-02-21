@@ -13,7 +13,6 @@ export default function ElectionRoom({ username, election, onExit }) {
 	const [isLoadingHistory, setIsLoadingHistory] = useState(true);
 	const [votingInProgress, setVotingInProgress] = useState(false);
 	const [userPayouts, setUserPayouts] = useState({});
-	const [hasVoted, setHasVoted] = useState(false);
 
 	const electionId = election._id || election.id;
 
@@ -29,15 +28,9 @@ export default function ElectionRoom({ username, election, onExit }) {
 		s.on("joined", (data) => {
 			console.log("Joined:", data);
 
-			// Set personalized payouts
 			if (data.payouts) {
 				console.log("My payouts:", data.payouts);
 				setUserPayouts(data.payouts);
-			}
-
-			// Set voted status
-			if (data.hasVoted !== undefined) {
-				setHasVoted(data.hasVoted);
 			}
 		});
 
@@ -59,7 +52,6 @@ export default function ElectionRoom({ username, election, onExit }) {
 			console.log("Election resolved, winner:", winner);
 			setWinner(winner);
 
-			// Show payout result for this user
 			if (userPayouts[winner] !== undefined) {
 				const myPayout = userPayouts[winner];
 				const payoutMsg =
@@ -136,7 +128,6 @@ export default function ElectionRoom({ username, election, onExit }) {
 			.then((data) => {
 				console.log("Fetched payouts:", data.payouts);
 				setUserPayouts(data.payouts);
-				setHasVoted(data.hasVoted);
 			})
 			.catch((err) => console.error("Error fetching payouts:", err));
 
@@ -147,8 +138,8 @@ export default function ElectionRoom({ username, election, onExit }) {
 	}, [username, electionId]);
 
 	const handleVote = async (candidate) => {
-		if (votingInProgress || hasVoted) {
-			console.log("Already voted or voting in progress");
+		if (votingInProgress) {
+			console.log("Vote already in progress");
 			return;
 		}
 
@@ -180,8 +171,6 @@ export default function ElectionRoom({ username, election, onExit }) {
 
 			const data = await response.json();
 			console.log("Vote successful:", data);
-
-			setHasVoted(true);
 
 			// Update local balance
 			setBalances((prev) => ({
@@ -364,11 +353,10 @@ export default function ElectionRoom({ username, election, onExit }) {
 										disabled={
 											winner !== null ||
 											votingInProgress ||
-											hasVoted ||
 											(balances[username] || 0) < voteCost
 										}
 										className={`w-full px-3 py-1 rounded text-sm ${
-											winner || hasVoted
+											winner
 												? "bg-gray-300 cursor-not-allowed text-gray-600"
 												: (balances[username] || 0) < voteCost
 													? "bg-red-200 cursor-not-allowed text-red-800"
@@ -379,13 +367,11 @@ export default function ElectionRoom({ username, election, onExit }) {
 									>
 										{winner
 											? "Election Ended"
-											: hasVoted
-												? "Already Voted"
-												: (balances[username] || 0) < voteCost
-													? "Insufficient Balance"
-													: votingInProgress
-														? "Voting..."
-														: `Vote for ${c}`}
+											: (balances[username] || 0) < voteCost
+												? "Insufficient Balance"
+												: votingInProgress
+													? "Voting..."
+													: `Vote for ${c}`}
 									</button>
 								</li>
 							);
